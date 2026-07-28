@@ -63,7 +63,7 @@ function guestsLabel(guests: string, language: string): string {
 function buildCustomerEmailHTML(data: ReservationEmailData): string {
   const formattedDate = formatDate(data.date, data.language);
   const guestsStr = guestsLabel(data.guests, data.language);
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const siteUrl = process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
   const strings: Record<string, Record<string, string>> = {
     pt: {
