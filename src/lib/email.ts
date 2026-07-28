@@ -15,31 +15,128 @@ export interface ReservationEmailData {
   language: string;
 }
 
-// ─── Transporter ──────────────────────────────────────────────────────────────
+interface MailOptions {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+}
+
+// ─── Transporters & Email Services ─────────────────────────────────────────────
 
 function createTransporter() {
+  const port = parseInt(process.env.SMTP_PORT || "465");
+  const isSecure = port === 465;
+
+  // Clean App Password if user pasted with spaces
+  const pass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, "") : "";
+
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_PORT === "465",
+    port: port,
+    secure: isSecure,
     auth: {
       user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      pass: pass,
+    },
+    // Set strict timeouts for Vercel Serverless Functions (10s max execution time on free plan)
+    connectionTimeout: 8000,
+    greetingTimeout: 5000,
+    socketTimeout: 8000,
+    tls: {
+      rejectUnauthorized: false,
     },
   });
 }
 
-function sendWithSendGrid(mailOptions: { from: string; to: string; subject: string; html: string }) {
-  if (!process.env.SENDGRID_API_KEY) {
-    throw new Error("SENDGRID_API_KEY not configured");
+async function sendWithResend(options: MailOptions) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("RESEND_API_KEY is missing");
+
+  // Default to onboarding@resend.dev if using Resend without a verified domain
+  let from = process.env.RESEND_FROM || process.env.SMTP_FROM || "Tacho da Memória <onboarding@resend.dev>";
+  if (from.includes("@gmail.com") && !process.env.RESEND_FROM) {
+    from = "Tacho da Memória <onboarding@resend.dev>";
   }
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  return sgMail.send({
-    to: mailOptions.to,
-    from: mailOptions.from,
-    subject: mailOptions.subject,
-    html: mailOptions.html,
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: from,
+      to: [options.to],
+      subject: options.subject,
+      html: options.html,
+    }),
   });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`Resend error (${res.status}): ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+async function sendWithSendGrid(options: MailOptions) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  if (!apiKey) throw new Error("SENDGRID_API_KEY is missing");
+
+  sgMail.setApiKey(apiKey);
+  return sgMail.send({
+    to: options.to,
+    from: options.from,
+    subject: options.subject,
+    html: options.html,
+  });
+}
+
+async function sendEmailUnified(options: MailOptions, label: string) {
+  const useResend = !!process.env.RESEND_API_KEY;
+  const useSendGrid = !!process.env.SENDGRID_API_KEY;
+  const useSMTP = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+
+  if (!useResend && !useSendGrid && !useSMTP) {
+    console.warn(`[email] No email credentials found (RESEND_API_KEY, SENDGRID_API_KEY, or SMTP_USER/SMTP_PASS). Skipping ${label} email.`);
+    return;
+  }
+
+  if (useResend) {
+    try {
+      await sendWithResend(options);
+      console.log(`[email] ${label} email sent successfully via Resend API to ${options.to}`);
+      return;
+    } catch (err: any) {
+      console.error(`[email] Resend failed for ${label}:`, err?.message || err);
+      // Fallback to SMTP if configured
+      if (!useSMTP) throw err;
+    }
+  }
+
+  if (useSendGrid) {
+    try {
+      await sendWithSendGrid(options);
+      console.log(`[email] ${label} email sent successfully via SendGrid API to ${options.to}`);
+      return;
+    } catch (err: any) {
+      console.error(`[email] SendGrid failed for ${label}:`, err?.message || err);
+      if (!useSMTP) throw err;
+    }
+  }
+
+  if (useSMTP) {
+    try {
+      const transporter = createTransporter();
+      const info = await transporter.sendMail(options);
+      console.log(`[email] ${label} email sent successfully via SMTP to ${options.to} (MessageID: ${info.messageId})`);
+      return info;
+    } catch (err: any) {
+      console.error(`[email] SMTP failed for ${label}:`, err?.message || err);
+      throw err;
+    }
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -337,86 +434,39 @@ function buildStaffNotificationHTML(data: ReservationEmailData): string {
 export async function sendCustomerConfirmation(
   data: ReservationEmailData
 ): Promise<void> {
-  // Prefer SendGrid API if available (free tier). Otherwise fall back to SMTP transporter.
-  const useSendGrid = !!process.env.SENDGRID_API_KEY;
-  if (!useSendGrid && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-    console.warn("[email] SMTP credentials not configured – skipping customer email");
-    return;
-  }
-
   const subjects: Record<string, string> = {
     pt: `✓ Reserva Confirmada – ${data.date} às ${data.time} | Tacho da Memória`,
     en: `✓ Reservation Confirmed – ${data.date} at ${data.time} | Tacho da Memória`,
     es: `✓ Reserva Confirmada – ${data.date} a las ${data.time} | Tacho da Memória`,
   };
 
-  const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`;
-  const mailOptions = {
+  const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER || "reservas@tachodamemoria.pt"}>`;
+  const mailOptions: MailOptions = {
     from,
     to: data.email,
     subject: subjects[data.language] || subjects.pt,
     html: buildCustomerEmailHTML(data),
   };
 
-  if (useSendGrid) {
-    try {
-      await sendWithSendGrid(mailOptions);
-      console.log(`[email] Customer confirmation sent to ${data.email} via SendGrid`);
-    } catch (err: any) {
-      console.error(`[email] Customer send error (SendGrid):`, err && err.message ? err.message : err);
-      throw err;
-    }
-  } else {
-    const transporter = createTransporter();
-    await transporter.sendMail(mailOptions);
-    console.log(`[email] Customer confirmation sent to ${data.email}`);
-  }
-}
-
-// Wrap send with debug to log transporter responses/errors
-async function safeSendMail(transporter: any, mailOptions: any, label: string) {
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[email] ${label} send success: messageId=${info.messageId} response=${info.response}`);
-    return info;
-  } catch (err: any) {
-    console.error(`[email] ${label} send error:`, err && err.message ? err.message : err);
-    throw err;
-  }
+  await sendEmailUnified(mailOptions, "customer confirmation");
 }
 
 export async function sendRestaurantNotification(
   data: ReservationEmailData
 ): Promise<void> {
-  const useSendGrid = !!process.env.SENDGRID_API_KEY;
-  if (!useSendGrid && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-    console.warn("[email] SMTP credentials not configured – skipping restaurant notification");
+  const restaurantEmail = process.env.RESTAURANT_EMAIL || process.env.SMTP_USER;
+  if (!restaurantEmail) {
+    console.warn("[email] No restaurant recipient configured (RESTAURANT_EMAIL/SMTP_USER) – skipping restaurant notification");
     return;
   }
 
-  const restaurantEmail = process.env.RESTAURANT_EMAIL || process.env.SMTP_USER;
-  if (!restaurantEmail) {
-    console.warn("[email] No restaurant recipient configured – skipping restaurant notification");
-    return;
-  }
-  const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`;
-  const mailOptions = {
+  const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER || "reservas@tachodamemoria.pt"}>`;
+  const mailOptions: MailOptions = {
     from,
     to: restaurantEmail,
     subject: `🔔 Nova Reserva: ${data.name} · ${data.date} às ${data.time} · ${data.guests} pax`,
     html: buildStaffNotificationHTML(data),
   };
 
-  if (useSendGrid) {
-    try {
-      await sendWithSendGrid(mailOptions);
-      console.log(`[email] staff send success (SendGrid) to ${restaurantEmail}`);
-    } catch (err: any) {
-      console.error(`[email] staff send error (SendGrid):`, err && err.message ? err.message : err);
-      throw err;
-    }
-  } else {
-    const transporter = createTransporter();
-    await safeSendMail(transporter, mailOptions, "staff");
-  }
+  await sendEmailUnified(mailOptions, "restaurant notification");
 }
