@@ -74,21 +74,18 @@ function validate(data: ReservationBody): Record<string, string> {
 
 export async function GET(request: NextRequest) {
   try {
-    // Treat file-based SQLite DATABASE_URL as not available in production
     const hasDatabase = !!process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith("file:");
 
-    // Simple date filter via query param: ?date=2024-12-25
     const { searchParams } = new URL(request.url);
     const dateFilter = searchParams.get("date");
     const statusFilter = searchParams.get("status");
 
-    // If no usable DATABASE_URL is configured, return an empty list with a helpful note
     if (!hasDatabase) {
       return NextResponse.json({
         success: true,
         count: 0,
         reservations: [],
-        note: "No DATABASE_URL configured. Reservations are not persisted.",
+        note: "No cloud DATABASE_URL configured. Reservations are processed & emailed instantly.",
       });
     }
 
@@ -126,13 +123,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, errors }, { status: 400 });
     }
 
-    // If DATABASE_URL not set or is file-based in production, skip DB persistence and proceed with an email-only fallback.
     const hasDatabaseForWrites = !!process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith("file:");
     let reservation: any = null;
+
     if (!hasDatabaseForWrites) {
-      // Create a lightweight reservation object (not persisted)
+      // In-memory / lightweight reservation object
       reservation = {
-        id: `tmp-${Date.now()}`,
+        id: `RES-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
         name: body.name.trim(),
         phone: body.phone.trim(),
         email: body.email.trim().toLowerCase(),
@@ -145,15 +142,15 @@ export async function POST(request: NextRequest) {
         createdAt: new Date().toISOString(),
       };
     } else {
-      // 2. Duplicate check – same name + date + time, created in last 2 hours, not cancelled
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      // 2. Duplicate check – 15 minute window for exact same email + date + time (prevents accidental double submits)
+      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
       const duplicate = await prisma.reservation.findFirst({
         where: {
-          name: { contains: body.name.trim() },
+          email: body.email.trim().toLowerCase(),
           date: body.date,
           time: body.time,
           status: { not: "cancelled" },
-          createdAt: { gte: twoHoursAgo },
+          createdAt: { gte: fifteenMinsAgo },
         },
       });
 
@@ -163,7 +160,7 @@ export async function POST(request: NextRequest) {
             success: false,
             errors: {
               duplicate:
-                "A reservation with these details was already submitted recently. Please call us if you need to make changes.",
+                "A reservation with this email and time slot was already submitted recently. Please wait a few minutes or call us.",
             },
           },
           { status: 409 }
@@ -186,7 +183,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 4. Send emails (non-blocking – don't fail the request if email fails)
+    // 4. Send emails
     const emailData = {
       id: reservation.id,
       name: reservation.name,
@@ -199,12 +196,21 @@ export async function POST(request: NextRequest) {
       language: reservation.language,
     };
 
-    await Promise.allSettled([
+    const emailResults = await Promise.allSettled([
       sendCustomerConfirmation(emailData),
       sendRestaurantNotification(emailData),
     ]);
 
-    // 5. Return success
+    emailResults.forEach((res, i) => {
+      const recipient = i === 0 ? "Customer" : "Restaurant";
+      if (res.status === "rejected") {
+        console.error(`[POST /api/reservations] ${recipient} email error:`, res.reason);
+      } else {
+        console.log(`[POST /api/reservations] ${recipient} email sent successfully.`);
+      }
+    });
+
+    // 5. Return success response
     return NextResponse.json(
       {
         success: true,
