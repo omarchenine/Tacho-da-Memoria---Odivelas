@@ -395,6 +395,10 @@ export async function sendRestaurantNotification(
   }
 
   const restaurantEmail = process.env.RESTAURANT_EMAIL || process.env.SMTP_USER;
+  if (!restaurantEmail) {
+    console.warn("[email] No restaurant recipient configured – skipping restaurant notification");
+    return;
+  }
   const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`;
   const mailOptions = {
     from,
