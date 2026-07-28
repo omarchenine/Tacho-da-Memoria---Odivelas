@@ -52,11 +52,8 @@ async function sendWithResend(options: MailOptions) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY is missing");
 
-  // Default to onboarding@resend.dev if using Resend without a custom verified domain
-  let from = process.env.RESEND_FROM || process.env.SMTP_FROM || "Tacho da Memória <onboarding@resend.dev>";
-  if (from.includes("@gmail.com") && !process.env.RESEND_FROM) {
-    from = "Tacho da Memória <onboarding@resend.dev>";
-  }
+  // Default to onboarding@resend.dev if custom domain is not set
+  const from = process.env.RESEND_FROM || "Tacho da Memória <onboarding@resend.dev>";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -102,40 +99,50 @@ async function sendEmailUnified(options: MailOptions, label: string) {
     return;
   }
 
+  let sent = false;
+
+  // 1. Try Resend API
   if (useResend) {
     try {
       await sendWithResend(options);
       console.log(`[email] ${label} email sent successfully via Resend API to ${options.to}`);
+      sent = true;
       return;
     } catch (err: any) {
       console.error(`[email] Resend failed for ${label}:`, err?.message || err);
-      if (!useSendGrid && !useSMTP) throw err;
-      console.log(`[email] Falling back to next email provider for ${label}...`);
+      console.log(`[email] Attempting fallback provider for ${label}...`);
     }
   }
 
-  if (useSendGrid) {
+  // 2. Try SendGrid API
+  if (!sent && useSendGrid) {
     try {
       await sendWithSendGrid(options);
       console.log(`[email] ${label} email sent successfully via SendGrid API to ${options.to}`);
+      sent = true;
       return;
     } catch (err: any) {
       console.error(`[email] SendGrid failed for ${label}:`, err?.message || err);
-      if (!useSMTP) throw err;
-      console.log(`[email] Falling back to SMTP for ${label}...`);
+      console.log(`[email] Attempting SMTP fallback for ${label}...`);
     }
   }
 
-  if (useSMTP) {
+  // 3. Try Gmail/SMTP
+  if (!sent && useSMTP) {
     try {
       const transporter = createTransporter();
       const info = await transporter.sendMail(options);
       console.log(`[email] ${label} email sent successfully via SMTP to ${options.to} (MessageID: ${info.messageId})`);
+      sent = true;
       return info;
     } catch (err: any) {
       console.error(`[email] SMTP failed for ${label}:`, err?.message || err);
-      throw err;
+      if (!useResend && !useSendGrid) throw err;
     }
+  }
+
+  if (!sent) {
+    console.warn(`[email] Could not deliver ${label} email to ${options.to} using any configured method.`);
   }
 }
 
