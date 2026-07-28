@@ -346,6 +346,18 @@ export async function sendCustomerConfirmation(
   console.log(`[email] Customer confirmation sent to ${data.email}`);
 }
 
+// Wrap send with debug to log transporter responses/errors
+async function safeSendMail(transporter: any, mailOptions: any, label: string) {
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[email] ${label} send success: messageId=${info.messageId} response=${info.response}`);
+    return info;
+  } catch (err: any) {
+    console.error(`[email] ${label} send error:`, err && err.message ? err.message : err);
+    throw err;
+  }
+}
+
 export async function sendRestaurantNotification(
   data: ReservationEmailData
 ): Promise<void> {
@@ -357,12 +369,14 @@ export async function sendRestaurantNotification(
   const restaurantEmail = process.env.RESTAURANT_EMAIL || process.env.SMTP_USER;
   const transporter = createTransporter();
 
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`,
-    to: restaurantEmail,
-    subject: `🔔 Nova Reserva: ${data.name} · ${data.date} às ${data.time} · ${data.guests} pax`,
-    html: buildStaffNotificationHTML(data),
-  });
-
-  console.log(`[email] Staff notification sent to ${restaurantEmail}`);
+  await safeSendMail(
+    transporter,
+    {
+      from: process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`,
+      to: restaurantEmail,
+      subject: `🔔 Nova Reserva: ${data.name} · ${data.date} às ${data.time} · ${data.guests} pax`,
+      html: buildStaffNotificationHTML(data),
+    },
+    "staff"
+  );
 }
