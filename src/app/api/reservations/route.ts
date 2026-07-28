@@ -79,6 +79,16 @@ export async function GET(request: NextRequest) {
     const dateFilter = searchParams.get("date");
     const statusFilter = searchParams.get("status");
 
+    // If no DATABASE_URL is configured, return an empty list with a helpful note
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        reservations: [],
+        note: "No DATABASE_URL configured. Reservations are not persisted.",
+      });
+    }
+
     const reservations = await prisma.reservation.findMany({
       where: {
         ...(dateFilter ? { date: dateFilter } : {}),
@@ -113,34 +123,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, errors }, { status: 400 });
     }
 
-    // 2. Duplicate check – same name + date + time, created in last 2 hours, not cancelled
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const duplicate = await prisma.reservation.findFirst({
-      where: {
-        name: { contains: body.name.trim() },
-        date: body.date,
-        time: body.time,
-        status: { not: "cancelled" },
-        createdAt: { gte: twoHoursAgo },
-      },
-    });
-
-    if (duplicate) {
-      return NextResponse.json(
-        {
-          success: false,
-          errors: {
-            duplicate:
-              "A reservation with these details was already submitted recently. Please call us if you need to make changes.",
-          },
-        },
-        { status: 409 }
-      );
-    }
-
-    // 3. Save to database
-    const reservation = await prisma.reservation.create({
-      data: {
+    // If DATABASE_URL not set in production, skip DB persistence and proceed with an email-only fallback.
+    let reservation: any = null;
+    if (!process.env.DATABASE_URL) {
+      // Create a lightweight reservation object (not persisted)
+      reservation = {
+        id: `tmp-${Date.now()}`,
         name: body.name.trim(),
         phone: body.phone.trim(),
         email: body.email.trim().toLowerCase(),
@@ -150,8 +138,49 @@ export async function POST(request: NextRequest) {
         requests: body.requests?.trim() || "",
         language: body.language || "pt",
         status: "pending",
-      },
-    });
+        createdAt: new Date().toISOString(),
+      };
+    } else {
+      // 2. Duplicate check – same name + date + time, created in last 2 hours, not cancelled
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const duplicate = await prisma.reservation.findFirst({
+        where: {
+          name: { contains: body.name.trim() },
+          date: body.date,
+          time: body.time,
+          status: { not: "cancelled" },
+          createdAt: { gte: twoHoursAgo },
+        },
+      });
+
+      if (duplicate) {
+        return NextResponse.json(
+          {
+            success: false,
+            errors: {
+              duplicate:
+                "A reservation with these details was already submitted recently. Please call us if you need to make changes.",
+            },
+          },
+          { status: 409 }
+        );
+      }
+
+      // 3. Save to database
+      reservation = await prisma.reservation.create({
+        data: {
+          name: body.name.trim(),
+          phone: body.phone.trim(),
+          email: body.email.trim().toLowerCase(),
+          date: body.date,
+          time: body.time,
+          guests: body.guests,
+          requests: body.requests?.trim() || "",
+          language: body.language || "pt",
+          status: "pending",
+        },
+      });
+    }
 
     // 4. Send emails (non-blocking – don't fail the request if email fails)
     const emailData = {
