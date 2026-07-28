@@ -48,11 +48,41 @@ function createTransporter() {
   });
 }
 
+// ─── Brevo (formerly Sendinblue) – Free 300/day, send to ANYONE ────────────────
+async function sendWithBrevo(options: MailOptions) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) throw new Error("BREVO_API_KEY is missing");
+
+  // Extract name and email from "Name <email>" format
+  const fromMatch = options.from.match(/^(.+?)\s*<(.+?)>$/);
+  const senderName = fromMatch ? fromMatch[1].trim() : "Tacho da Memória";
+  const senderEmail = fromMatch ? fromMatch[2].trim() : (process.env.SMTP_USER || "sifoomar7@gmail.com");
+
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail },
+      to: [{ email: options.to }],
+      subject: options.subject,
+      htmlContent: options.html,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`Brevo error (${res.status}): ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
 async function sendWithResend(options: MailOptions) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY is missing");
 
-  // Default to onboarding@resend.dev if custom domain is not set
   const from = process.env.RESEND_FROM || "Tacho da Memória <onboarding@resend.dev>";
 
   const res = await fetch("https://api.resend.com/emails", {
@@ -90,54 +120,67 @@ async function sendWithSendGrid(options: MailOptions) {
 }
 
 async function sendEmailUnified(options: MailOptions, label: string) {
+  const useBrevo = !!process.env.BREVO_API_KEY;
   const useResend = !!process.env.RESEND_API_KEY;
   const useSendGrid = !!process.env.SENDGRID_API_KEY;
   const useSMTP = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
 
-  if (!useResend && !useSendGrid && !useSMTP) {
-    console.warn(`[email] No email credentials found (RESEND_API_KEY, SENDGRID_API_KEY, or SMTP_USER/SMTP_PASS). Skipping ${label} email.`);
+  if (!useBrevo && !useResend && !useSendGrid && !useSMTP) {
+    console.warn(`[email] No email credentials found. Skipping ${label} email.`);
     return;
   }
 
   let sent = false;
 
-  // 1. Try Resend API
-  if (useResend) {
+  // 1. Try Brevo first (Free 300/day, sends to ANYONE without domain)
+  if (useBrevo) {
+    try {
+      await sendWithBrevo(options);
+      console.log(`[email] ${label} sent via Brevo to ${options.to}`);
+      sent = true;
+      return;
+    } catch (err: any) {
+      console.error(`[email] Brevo failed for ${label}:`, err?.message || err);
+      console.log(`[email] Falling back to next provider for ${label}...`);
+    }
+  }
+
+  // 2. Try Resend API
+  if (!sent && useResend) {
     try {
       await sendWithResend(options);
-      console.log(`[email] ${label} email sent successfully via Resend API to ${options.to}`);
+      console.log(`[email] ${label} sent via Resend to ${options.to}`);
       sent = true;
       return;
     } catch (err: any) {
       console.error(`[email] Resend failed for ${label}:`, err?.message || err);
-      console.log(`[email] Attempting fallback provider for ${label}...`);
+      console.log(`[email] Falling back to next provider for ${label}...`);
     }
   }
 
-  // 2. Try SendGrid API
+  // 3. Try SendGrid API
   if (!sent && useSendGrid) {
     try {
       await sendWithSendGrid(options);
-      console.log(`[email] ${label} email sent successfully via SendGrid API to ${options.to}`);
+      console.log(`[email] ${label} sent via SendGrid to ${options.to}`);
       sent = true;
       return;
     } catch (err: any) {
       console.error(`[email] SendGrid failed for ${label}:`, err?.message || err);
-      console.log(`[email] Attempting SMTP fallback for ${label}...`);
+      console.log(`[email] Falling back to SMTP for ${label}...`);
     }
   }
 
-  // 3. Try Gmail/SMTP
+  // 4. Try Gmail/SMTP
   if (!sent && useSMTP) {
     try {
       const transporter = createTransporter();
       const info = await transporter.sendMail(options);
-      console.log(`[email] ${label} email sent successfully via SMTP to ${options.to} (MessageID: ${info.messageId})`);
+      console.log(`[email] ${label} sent via SMTP to ${options.to} (ID: ${info.messageId})`);
       sent = true;
       return info;
     } catch (err: any) {
       console.error(`[email] SMTP failed for ${label}:`, err?.message || err);
-      if (!useResend && !useSendGrid) throw err;
     }
   }
 
