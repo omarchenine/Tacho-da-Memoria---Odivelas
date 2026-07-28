@@ -74,13 +74,16 @@ function validate(data: ReservationBody): Record<string, string> {
 
 export async function GET(request: NextRequest) {
   try {
+    // Treat file-based SQLite DATABASE_URL as not available in production
+    const hasDatabase = !!process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith("file:");
+
     // Simple date filter via query param: ?date=2024-12-25
     const { searchParams } = new URL(request.url);
     const dateFilter = searchParams.get("date");
     const statusFilter = searchParams.get("status");
 
-    // If no DATABASE_URL is configured, return an empty list with a helpful note
-    if (!process.env.DATABASE_URL) {
+    // If no usable DATABASE_URL is configured, return an empty list with a helpful note
+    if (!hasDatabase) {
       return NextResponse.json({
         success: true,
         count: 0,
@@ -123,9 +126,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, errors }, { status: 400 });
     }
 
-    // If DATABASE_URL not set in production, skip DB persistence and proceed with an email-only fallback.
+    // If DATABASE_URL not set or is file-based in production, skip DB persistence and proceed with an email-only fallback.
+    const hasDatabaseForWrites = !!process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith("file:");
     let reservation: any = null;
-    if (!process.env.DATABASE_URL) {
+    if (!hasDatabaseForWrites) {
       // Create a lightweight reservation object (not persisted)
       reservation = {
         id: `tmp-${Date.now()}`,
