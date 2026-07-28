@@ -1,26 +1,96 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme {
+  --font-serif: var(--font-playfair), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  
+  --color-cream: #FDFBF7;
+  --color-charcoal: #1F2022;
+  --color-olive: #4A533C;
+  --color-olive-dark: #373D2C;
+  --color-olive-light: #606C4E;
+  --color-terracotta: #C05C3E;
+  --color-terracotta-dark: #A34A2F;
+  --color-gold: #D4AF37;
+  --color-gold-dark: #B5932A;
+  --color-gold-light: #F3E5AB;
+  
+  --animate-fade-in: fade-in 0.8s ease-out forwards;
+  --animate-fade-in-up: fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-slide-down: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes slide-down {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(0); }
   }
 }
 
-body {
-  background: var(--background);
+:root {
+  --background: #FDFBF7;
+  --foreground: #1F2022;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--background);
+  color: var(--foreground);
+  overflow-x: hidden;
+}
+
+/* Custom Utilities */
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Glassmorphism Navigation */
+.glass-nav {
+  background-color: rgba(253, 251, 247, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(74, 83, 60, 0.1);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FDFBF7;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C05C3E;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A34A2F;
+}
+
+/* Styling for input focus states */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #4A533C;
+  box-shadow: 0 0 0 2px rgba(74, 83, 60, 0.2);
 }
