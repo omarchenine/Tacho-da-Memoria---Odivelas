@@ -113,15 +113,15 @@ export default function Footer() {
             <ul className="space-y-3 text-sm text-cream/75 font-light">
               <li className="flex items-start gap-3">
                 <MapPin className="h-5 w-5 text-gold shrink-0 mt-0.5" />
-                <span>Rua da Memória, 45A,<br />2675-401 Odivelas, Portugal</span>
+                <span>Rua Francisco Relvas Marques 2,<br />Odivelas, Portugal</span>
               </li>
               <li className="flex items-center gap-3">
                 <Phone className="h-4 w-4 text-gold shrink-0" />
-                <a href="tel:+351210000000" className="hover:text-gold transition-colors">+351 210 000 000</a>
+                <a href="tel:+351962708627" className="hover:text-gold transition-colors">+351 962 708 627</a>
               </li>
               <li className="flex items-center gap-3">
                 <Mail className="h-4 w-4 text-gold shrink-0" />
-                <a href="mailto:geral@tachodamemoria.pt" className="hover:text-gold transition-colors">geral@tachodamemoria.pt</a>
+                <a href="mailto:restaurantetachodamemoria@gmail.com" className="hover:text-gold transition-colors">restaurantetachodamemoria@gmail.com</a>
               </li>
             </ul>
           </div>

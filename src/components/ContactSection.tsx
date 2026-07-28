@@ -6,31 +6,31 @@ import { useLanguage } from "@/i18n/LanguageContext";
 export default function ContactSection() {
   const { t } = useLanguage();
 
-  // Google Maps embed URL centered on Odivelas, Portugal
-  const mapEmbedUrl = "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d12437.994270914808!2d-9.182283087243653!3d38.790956965158654!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0xd1933cc4d1eb82d%3A0xcb13511eb9c9b57b!2sOdivelas!5e0!3m2!1spt!2spt!4v1700000000000!5m2!1spt!2spt";
+  // Google Maps embed URL for the exact business address
+  const mapEmbedUrl = "https://maps.google.com/maps?q=Rua%20Francisco%20Relvas%20Marques%202,%20Odivelas,%20Portugal&output=embed";
 
   const contacts = [
     {
       icon: <MapPin className="h-6 w-6 text-terracotta" />,
       title: t("contact.location"),
-      content: "Rua da Memória, 45A, 2675-401 Odivelas, Portugal",
-      link: "https://maps.google.com/?q=Odivelas+Portugal",
+      content: "Rua Francisco Relvas Marques 2, Odivelas, Portugal",
+      link: "https://maps.google.com/?q=Rua+Francisco+Relvas+Marques+2,+Odivelas,+Portugal",
       linkText: t("contact.directions"),
       external: true,
     },
     {
       icon: <Phone className="h-6 w-6 text-terracotta" />,
       title: t("contact.phoneTitle"),
-      content: "+351 210 000 000",
-      link: "tel:+351210000000",
+      content: "+351 962 708 627",
+      link: "tel:+351962708627",
       linkText: t("contact.callToReserve"),
       external: false,
     },
     {
       icon: <Mail className="h-6 w-6 text-terracotta" />,
       title: t("contact.emailTitle"),
-      content: "geral@tachodamemoria.pt",
-      link: "mailto:geral@tachodamemoria.pt",
+      content: "restaurantetachodamemoria@gmail.com",
+      link: "mailto:restaurantetachodamemoria@gmail.com",
       linkText: t("contact.sendEmail"),
       external: false,
     },
