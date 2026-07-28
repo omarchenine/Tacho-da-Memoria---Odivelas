@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,19 @@ function createTransporter() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+  });
+}
+
+function sendWithSendGrid(mailOptions: { from: string; to: string; subject: string; html: string }) {
+  if (!process.env.SENDGRID_API_KEY) {
+    throw new Error("SENDGRID_API_KEY not configured");
+  }
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  return sgMail.send({
+    to: mailOptions.to,
+    from: mailOptions.from,
+    subject: mailOptions.subject,
+    html: mailOptions.html,
   });
 }
 
@@ -323,12 +337,12 @@ function buildStaffNotificationHTML(data: ReservationEmailData): string {
 export async function sendCustomerConfirmation(
   data: ReservationEmailData
 ): Promise<void> {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  // Prefer SendGrid API if available (free tier). Otherwise fall back to SMTP transporter.
+  const useSendGrid = !!process.env.SENDGRID_API_KEY;
+  if (!useSendGrid && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
     console.warn("[email] SMTP credentials not configured – skipping customer email");
     return;
   }
-
-  const transporter = createTransporter();
 
   const subjects: Record<string, string> = {
     pt: `✓ Reserva Confirmada – ${data.date} às ${data.time} | Tacho da Memória`,
@@ -336,14 +350,27 @@ export async function sendCustomerConfirmation(
     es: `✓ Reserva Confirmada – ${data.date} a las ${data.time} | Tacho da Memória`,
   };
 
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`,
+  const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`;
+  const mailOptions = {
+    from,
     to: data.email,
     subject: subjects[data.language] || subjects.pt,
     html: buildCustomerEmailHTML(data),
-  });
+  };
 
-  console.log(`[email] Customer confirmation sent to ${data.email}`);
+  if (useSendGrid) {
+    try {
+      await sendWithSendGrid(mailOptions);
+      console.log(`[email] Customer confirmation sent to ${data.email} via SendGrid`);
+    } catch (err: any) {
+      console.error(`[email] Customer send error (SendGrid):`, err && err.message ? err.message : err);
+      throw err;
+    }
+  } else {
+    const transporter = createTransporter();
+    await transporter.sendMail(mailOptions);
+    console.log(`[email] Customer confirmation sent to ${data.email}`);
+  }
 }
 
 // Wrap send with debug to log transporter responses/errors
@@ -361,22 +388,31 @@ async function safeSendMail(transporter: any, mailOptions: any, label: string) {
 export async function sendRestaurantNotification(
   data: ReservationEmailData
 ): Promise<void> {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  const useSendGrid = !!process.env.SENDGRID_API_KEY;
+  if (!useSendGrid && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
     console.warn("[email] SMTP credentials not configured – skipping restaurant notification");
     return;
   }
 
   const restaurantEmail = process.env.RESTAURANT_EMAIL || process.env.SMTP_USER;
-  const transporter = createTransporter();
+  const from = process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`;
+  const mailOptions = {
+    from,
+    to: restaurantEmail,
+    subject: `🔔 Nova Reserva: ${data.name} · ${data.date} às ${data.time} · ${data.guests} pax`,
+    html: buildStaffNotificationHTML(data),
+  };
 
-  await safeSendMail(
-    transporter,
-    {
-      from: process.env.SMTP_FROM || `Tacho da Memória <${process.env.SMTP_USER}>`,
-      to: restaurantEmail,
-      subject: `🔔 Nova Reserva: ${data.name} · ${data.date} às ${data.time} · ${data.guests} pax`,
-      html: buildStaffNotificationHTML(data),
-    },
-    "staff"
-  );
+  if (useSendGrid) {
+    try {
+      await sendWithSendGrid(mailOptions);
+      console.log(`[email] staff send success (SendGrid) to ${restaurantEmail}`);
+    } catch (err: any) {
+      console.error(`[email] staff send error (SendGrid):`, err && err.message ? err.message : err);
+      throw err;
+    }
+  } else {
+    const transporter = createTransporter();
+    await safeSendMail(transporter, mailOptions, "staff");
+  }
 }
