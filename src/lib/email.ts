@@ -39,7 +39,6 @@ function createTransporter() {
       user: process.env.SMTP_USER,
       pass: pass,
     },
-    // Set strict timeouts for Vercel Serverless Functions (10s max execution time on free plan)
     connectionTimeout: 8000,
     greetingTimeout: 5000,
     socketTimeout: 8000,
@@ -53,7 +52,7 @@ async function sendWithResend(options: MailOptions) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY is missing");
 
-  // Default to onboarding@resend.dev if using Resend without a verified domain
+  // Default to onboarding@resend.dev if using Resend without a custom verified domain
   let from = process.env.RESEND_FROM || process.env.SMTP_FROM || "Tacho da Memória <onboarding@resend.dev>";
   if (from.includes("@gmail.com") && !process.env.RESEND_FROM) {
     from = "Tacho da Memória <onboarding@resend.dev>";
@@ -110,8 +109,8 @@ async function sendEmailUnified(options: MailOptions, label: string) {
       return;
     } catch (err: any) {
       console.error(`[email] Resend failed for ${label}:`, err?.message || err);
-      // Fallback to SMTP if configured
-      if (!useSMTP) throw err;
+      if (!useSendGrid && !useSMTP) throw err;
+      console.log(`[email] Falling back to next email provider for ${label}...`);
     }
   }
 
@@ -123,6 +122,7 @@ async function sendEmailUnified(options: MailOptions, label: string) {
     } catch (err: any) {
       console.error(`[email] SendGrid failed for ${label}:`, err?.message || err);
       if (!useSMTP) throw err;
+      console.log(`[email] Falling back to SMTP for ${label}...`);
     }
   }
 
